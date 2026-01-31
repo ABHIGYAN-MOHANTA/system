@@ -6,7 +6,11 @@ A **Solo Leveling**–style daily habit tracker over SSH. Connect with SSH, then
 ssh -p 50526 system.hostagedown.com
 ```
 
-![Screenshot](pics/screenshot.png)
+
+<p align="center">
+  <img src="pics/screenshot.png" width="48%" />
+  <img src="pics/screenshot2.png" width="48%" />
+</p>
 
 ## Features
 
