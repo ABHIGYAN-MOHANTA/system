@@ -523,14 +523,10 @@ func (m model) View() string {
 
 	// Main app: daily quests + stats
 	u := m.userData
-	expNeed := u.EXPForNextLevel()
 	expIn := u.EXPInCurrentLevel()
-	expPct := 0
-	if expNeed > 0 {
-		expPct = (expIn * 24) / expNeed
-		if expPct > 24 {
-			expPct = 24
-		}
+	expPct := (expIn * 24) / 100
+	if expPct > 24 {
+		expPct = 24
 	}
 	expBar := strings.Repeat("█", expPct) + strings.Repeat("░", 24-expPct)
 	str, vit, agi, intel := u.STR, u.VIT, u.AGI, u.INT
