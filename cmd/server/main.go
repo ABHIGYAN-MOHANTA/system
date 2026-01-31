@@ -254,6 +254,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.userData.Habits) > 0 && m.cursor >= 0 && m.cursor < len(m.userData.Habits) {
 				h := m.userData.Habits[m.cursor]
 				gainedEXP, leveledUp := m.userData.ToggleToday(h.ID)
+				m.userData.UpdateStreak() // Update streak after toggling
 				_ = store.SaveUser(m.userData)
 				if leveledUp {
 					// Async call to Gemini API for stat allocation
@@ -321,13 +322,12 @@ func renderTimeBar(timeUntil time.Duration, accent, dim, reward lipgloss.Style) 
 	return accent.Render("Time ") + dim.Render("[") + reward.Render(bar) + dim.Render("] ") + dim.Render(timeStr)
 }
 
-// Solo Leveling–inspired colors (system blue, gold rewards, dim text)
+// Solo Leveling–inspired colors with enhanced palette
 func soloStyles(r *lipgloss.Renderer) (systemTitle, accent, dim, reward, errStyle, toastStyle lipgloss.Style, boxBorder lipgloss.Style) {
-	systemBlue := lipgloss.Color("39") // bright blue
+	systemBlue := lipgloss.Color("63") // purple-blue (Solo Leveling system)
 	dimGray := lipgloss.Color("245")
 	gold := lipgloss.Color("220")
 	red := lipgloss.Color("203")
-	white := lipgloss.Color("255")
 	systemTitle = r.NewStyle().Bold(true).Foreground(systemBlue)
 	accent = r.NewStyle().Foreground(systemBlue)
 	dim = r.NewStyle().Foreground(dimGray)
@@ -338,8 +338,53 @@ func soloStyles(r *lipgloss.Renderer) (systemTitle, accent, dim, reward, errStyl
 		Border(lipgloss.DoubleBorder()).
 		BorderForeground(systemBlue).
 		Padding(0, 2)
-	_ = white
 	return
+}
+
+// Hunter Rank based on level (Solo Leveling style)
+func hunterRank(level int) (rank string, color lipgloss.Color) {
+	switch {
+	case level >= 51:
+		return "S-Rank", lipgloss.Color("135") // purple
+	case level >= 36:
+		return "A-Rank", lipgloss.Color("196") // red
+	case level >= 21:
+		return "B-Rank", lipgloss.Color("33") // blue
+	case level >= 11:
+		return "C-Rank", lipgloss.Color("40") // green
+	case level >= 6:
+		return "D-Rank", lipgloss.Color("214") // orange
+	default:
+		return "E-Rank", lipgloss.Color("245") // gray
+	}
+}
+
+// Stat colors for Solo Leveling aesthetic
+func statColor(stat string) lipgloss.Color {
+	switch stat {
+	case "STR":
+		return lipgloss.Color("196") // red
+	case "VIT":
+		return lipgloss.Color("40") // green
+	case "AGI":
+		return lipgloss.Color("220") // yellow/gold
+	case "INT":
+		return lipgloss.Color("39") // blue
+	default:
+		return lipgloss.Color("255")
+	}
+}
+
+// Streak fire color
+func streakStyle(r *lipgloss.Renderer, streak int) lipgloss.Style {
+	if streak >= 30 {
+		return r.NewStyle().Bold(true).Foreground(lipgloss.Color("196")) // red fire
+	} else if streak >= 14 {
+		return r.NewStyle().Bold(true).Foreground(lipgloss.Color("208")) // orange fire
+	} else if streak >= 7 {
+		return r.NewStyle().Bold(true).Foreground(lipgloss.Color("214")) // yellow-orange
+	}
+	return r.NewStyle().Foreground(lipgloss.Color("220")) // gold
 }
 
 // Stats are now stored directly in UserData (STR, VIT, AGI, INT)
@@ -490,20 +535,33 @@ func (m model) View() string {
 	expBar := strings.Repeat("█", expPct) + strings.Repeat("░", 24-expPct)
 	str, vit, agi, intel := u.STR, u.VIT, u.AGI, u.INT
 
+	// Get hunter rank
+	rank, rankColor := hunterRank(u.Level)
+	rankStyle := r.NewStyle().Bold(true).Foreground(rankColor)
+
 	var b strings.Builder
 	b.WriteString(systemTitle("◆  S Y S T E M"))
-	b.WriteString(dim.Render("  —  Daily Quests"))
-	b.WriteString(dim.Render("  │  Hunter: ") + accent.Render(u.Username))
+	b.WriteString(dim.Render("  —  Hunter: ") + accent.Render(u.Username) + dim.Render(" ") + rankStyle.Render("["+rank+"]"))
+	// Show streak if active
+	if u.CurrentStreak > 0 {
+		fireStyle := streakStyle(r, u.CurrentStreak)
+		b.WriteString("  " + fireStyle.Render(fmt.Sprintf("🔥 %d", u.CurrentStreak)))
+	}
 	b.WriteString("\n")
 	b.WriteString(dim.Render("  Complete your daily quests to level up."))
 	b.WriteString("\n\n")
 
-	// Stats panel (Solo Leveling style) — dynamic box
+	// Stats panel with colored stats
+	strStyle := r.NewStyle().Bold(true).Foreground(statColor("STR"))
+	vitStyle := r.NewStyle().Bold(true).Foreground(statColor("VIT"))
+	agiStyle := r.NewStyle().Bold(true).Foreground(statColor("AGI"))
+	intStyle := r.NewStyle().Bold(true).Foreground(statColor("INT"))
+
 	statusLine1 := accent.Render("Level ") + reward.Render(fmt.Sprintf("%d", u.Level)) +
-		accent.Render("   STR ") + reward.Render(fmt.Sprintf("%d", str)) +
-		accent.Render("  VIT ") + reward.Render(fmt.Sprintf("%d", vit)) +
-		accent.Render("  AGI ") + reward.Render(fmt.Sprintf("%d", agi)) +
-		accent.Render("  INT ") + reward.Render(fmt.Sprintf("%d", intel))
+		dim.Render("   STR ") + strStyle.Render(fmt.Sprintf("%d", str)) +
+		dim.Render("  VIT ") + vitStyle.Render(fmt.Sprintf("%d", vit)) +
+		dim.Render("  AGI ") + agiStyle.Render(fmt.Sprintf("%d", agi)) +
+		dim.Render("  INT ") + intStyle.Render(fmt.Sprintf("%d", intel))
 	statusLine2 := accent.Render("EXP  ") + dim.Render("[") + reward.Render(expBar) + dim.Render("] ") +
 		reward.Render(fmt.Sprintf("%d/100", expIn))
 	// Add time bar
@@ -573,7 +631,8 @@ func (m model) View() string {
 			done := u.CompletedToday(h.ID)
 			check := dim.Render("[ ]")
 			if done {
-				check = reward.Render("[✓]")
+				greenCheck := r.NewStyle().Bold(true).Foreground(lipgloss.Color("40")) // green
+				check = greenCheck.Render("[✓]")
 			}
 			displayName := truncateQuestName(h.Name, maxQuestNameRunes)
 			line := arrow + check + " " + displayName + "  " + dim.Render("→ ") + reward.Render(fmt.Sprintf("+%d EXP", store.EXPPerQuest))

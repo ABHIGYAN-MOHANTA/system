@@ -31,10 +31,13 @@ type UserData struct {
 	Habits           []Habit                    `json:"habits"`
 	Level            int                        `json:"level"`
 	EXP              int                        `json:"exp"`
-	STR              int                        `json:"str"` // Strength
-	VIT              int                        `json:"vit"` // Vitality
-	AGI              int                        `json:"agi"` // Agility
-	INT              int                        `json:"int"` // Intelligence
+	STR              int                        `json:"str"`               // Strength
+	VIT              int                        `json:"vit"`               // Vitality
+	AGI              int                        `json:"agi"`               // Agility
+	INT              int                        `json:"int"`               // Intelligence
+	CurrentStreak    int                        `json:"current_streak"`    // Days in a row completing all quests
+	LongestStreak    int                        `json:"longest_streak"`    // Personal best streak
+	LastCompleteDay  string                     `json:"last_complete_day"` // Last day all quests completed
 	DailyCompletions map[string]map[string]bool `json:"daily_completions"`
 	DayResetHour     int                        `json:"day_reset_hour"` // Hour (0-23) when daily quests reset
 	mu               sync.Mutex                 `json:"-"`
@@ -92,6 +95,89 @@ func (u *UserData) ToggleToday(habitID string) (gainedEXP bool, leveledUp bool) 
 		}
 	}
 	return gainedEXP, leveledUp
+}
+
+// AllQuestsCompletedToday checks if all habits are completed for today
+func (u *UserData) AllQuestsCompletedToday() bool {
+	if len(u.Habits) == 0 {
+		return false
+	}
+	today := u.TodayKey()
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.DailyCompletions == nil || u.DailyCompletions[today] == nil {
+		return false
+	}
+	for _, h := range u.Habits {
+		if !u.DailyCompletions[today][h.ID] {
+			return false
+		}
+	}
+	return true
+}
+
+// UpdateStreak updates the streak based on completion status
+func (u *UserData) UpdateStreak() {
+	today := u.TodayKey()
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	// Check if all quests completed today
+	allComplete := true
+	if len(u.Habits) == 0 {
+		allComplete = false
+	} else if u.DailyCompletions == nil || u.DailyCompletions[today] == nil {
+		allComplete = false
+	} else {
+		for _, h := range u.Habits {
+			if !u.DailyCompletions[today][h.ID] {
+				allComplete = false
+				break
+			}
+		}
+	}
+
+	if !allComplete {
+		// If today was complete but now isn't (unchecked a quest)
+		if u.LastCompleteDay == today {
+			u.LastCompleteDay = ""
+			u.CurrentStreak--
+			if u.CurrentStreak < 0 {
+				u.CurrentStreak = 0
+			}
+		}
+		return
+	}
+
+	// All quests completed today
+	if u.LastCompleteDay == today {
+		// Already counted today
+		return
+	}
+
+	// Check if yesterday was the last complete day (streak continues)
+	yesterday := time.Now()
+	if yesterday.Hour() < u.DayResetHour {
+		yesterday = yesterday.Add(-24 * time.Hour)
+	}
+	yesterday = yesterday.Add(-24 * time.Hour)
+	yesterdayKey := yesterday.Format("2006-01-02")
+
+	if u.LastCompleteDay == yesterdayKey {
+		// Streak continues
+		u.CurrentStreak++
+	} else if u.LastCompleteDay == "" {
+		// First completion or streak was broken
+		u.CurrentStreak = 1
+	} else {
+		// Streak broken, start fresh
+		u.CurrentStreak = 1
+	}
+
+	u.LastCompleteDay = today
+	if u.CurrentStreak > u.LongestStreak {
+		u.LongestStreak = u.CurrentStreak
+	}
 }
 
 func (u *UserData) EXPForNextLevel() int {
