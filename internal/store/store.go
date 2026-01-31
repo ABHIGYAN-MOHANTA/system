@@ -26,14 +26,18 @@ type Habit struct {
 }
 
 type UserData struct {
-	Username         string                        `json:"username"`
-	PasswordHash     string                        `json:"password_hash"`
-	Habits           []Habit                       `json:"habits"`
-	Level            int                           `json:"level"`
-	EXP              int                           `json:"exp"`
-	DailyCompletions map[string]map[string]bool    `json:"daily_completions"`
-	DayResetHour     int                           `json:"day_reset_hour"` // Hour (0-23) when daily quests reset
-	mu               sync.Mutex                    `json:"-"`
+	Username         string                     `json:"username"`
+	PasswordHash     string                     `json:"password_hash"`
+	Habits           []Habit                    `json:"habits"`
+	Level            int                        `json:"level"`
+	EXP              int                        `json:"exp"`
+	STR              int                        `json:"str"` // Strength
+	VIT              int                        `json:"vit"` // Vitality
+	AGI              int                        `json:"agi"` // Agility
+	INT              int                        `json:"int"` // Intelligence
+	DailyCompletions map[string]map[string]bool `json:"daily_completions"`
+	DayResetHour     int                        `json:"day_reset_hour"` // Hour (0-23) when daily quests reset
+	mu               sync.Mutex                 `json:"-"`
 }
 
 func (u *UserData) TodayKey() string {
@@ -59,7 +63,7 @@ func (u *UserData) CompletedToday(habitID string) bool {
 	return day[habitID]
 }
 
-func (u *UserData) ToggleToday(habitID string) (gainedEXP bool) {
+func (u *UserData) ToggleToday(habitID string) (gainedEXP bool, leveledUp bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	today := u.TodayKey()
@@ -76,6 +80,7 @@ func (u *UserData) ToggleToday(habitID string) (gainedEXP bool) {
 		u.EXP += EXPPerQuest
 		for u.EXP >= u.Level*EXPPerLevel {
 			u.Level++
+			leveledUp = true
 		}
 	} else {
 		u.EXP -= EXPPerQuest
@@ -86,7 +91,7 @@ func (u *UserData) ToggleToday(habitID string) (gainedEXP bool) {
 			u.Level--
 		}
 	}
-	return gainedEXP
+	return gainedEXP, leveledUp
 }
 
 func (u *UserData) EXPForNextLevel() int {
@@ -154,6 +159,27 @@ func (u *UserData) HabitByIndex(i int) (Habit, bool) {
 	return u.Habits[i], true
 }
 
+// ApplyLevelUpStats adds the given stat increases to the user's stats
+func (u *UserData) ApplyLevelUpStats(str, vit, agi, intel int) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.STR += str
+	u.VIT += vit
+	u.AGI += agi
+	u.INT += intel
+}
+
+// GetHabitNames returns a list of all habit names
+func (u *UserData) GetHabitNames() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	names := make([]string, len(u.Habits))
+	for i, h := range u.Habits {
+		names[i] = h.Name
+	}
+	return names
+}
+
 func userPath(username string) string {
 	safe := filepath.Clean(username)
 	if safe == "" || safe == "." || safe == ".." {
@@ -180,6 +206,20 @@ func LoadUser(username string) (*UserData, error) {
 	}
 	if u.DayResetHour < 0 || u.DayResetHour > 23 {
 		u.DayResetHour = DefaultResetHour
+	}
+	// Initialize stats with base values for backwards compatibility
+	const baseStats = 10
+	if u.STR == 0 {
+		u.STR = baseStats + u.Level
+	}
+	if u.VIT == 0 {
+		u.VIT = baseStats + u.Level
+	}
+	if u.AGI == 0 {
+		u.AGI = baseStats + u.Level
+	}
+	if u.INT == 0 {
+		u.INT = baseStats + u.Level
 	}
 	return &u, nil
 }
@@ -223,12 +263,17 @@ func CreateUser(username, password string) (*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	const baseStats = 10
 	u := &UserData{
 		Username:         username,
 		PasswordHash:     string(hash),
 		Habits:           []Habit{},
 		Level:            DefaultLevel,
 		EXP:              0,
+		STR:              baseStats + DefaultLevel,
+		VIT:              baseStats + DefaultLevel,
+		AGI:              baseStats + DefaultLevel,
+		INT:              baseStats + DefaultLevel,
 		DailyCompletions: make(map[string]map[string]bool),
 		DayResetHour:     DefaultResetHour,
 	}

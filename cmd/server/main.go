@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/wish/bubbletea"
 	"github.com/charmbracelet/wish/logging"
 
+	"github.com/abhigyan-mohanta/system/internal/gemini"
 	"github.com/abhigyan-mohanta/system/internal/store"
 )
 
@@ -38,14 +39,20 @@ type model struct {
 	authError     string
 
 	// Main app (when logged in)
-	userData    *store.UserData
-	cursor      int
-	addingHabit *string
-	lastToast   string // "Quest complete!", "Level Up!", etc. — cleared on next key
+	userData       *store.UserData
+	cursor         int
+	addingHabit    *string
+	lastToast      string // "Quest complete!", "Level Up!", etc. — cleared on next key
+	pendingLevelUp bool   // Waiting for Gemini API response
 
 	// Settings
 	settingsResetHour int  // Temporary value while editing
 	settingsSaved     bool // Show save confirmation
+}
+
+// levelUpStatsMsg is received when Gemini API returns stat allocation
+type levelUpStatsMsg struct {
+	stats gemini.StatResponse
 }
 
 func initialModel(sess ssh.Session) model {
@@ -67,6 +74,17 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle async level-up stats response
+	if statsMsg, ok := msg.(levelUpStatsMsg); ok {
+		if m.userData != nil {
+			m.userData.ApplyLevelUpStats(statsMsg.stats.STR, statsMsg.stats.VIT, statsMsg.stats.AGI, statsMsg.stats.INT)
+			m.lastToast = fmt.Sprintf("LEVEL UP! Stats: STR+%d VIT+%d AGI+%d INT+%d", statsMsg.stats.STR, statsMsg.stats.VIT, statsMsg.stats.AGI, statsMsg.stats.INT)
+			_ = store.SaveUser(m.userData)
+			m.pendingLevelUp = false
+		}
+		return m, nil
+	}
+
 	// Login or register form
 	if m.authState == authLogin || m.authState == authRegister {
 		switch msg := msg.(type) {
@@ -235,15 +253,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case " ":
 			if len(m.userData.Habits) > 0 && m.cursor >= 0 && m.cursor < len(m.userData.Habits) {
 				h := m.userData.Habits[m.cursor]
-				levelBefore := m.userData.Level
-				gainedEXP := m.userData.ToggleToday(h.ID)
+				gainedEXP, leveledUp := m.userData.ToggleToday(h.ID)
 				_ = store.SaveUser(m.userData)
-				if gainedEXP {
-					if m.userData.Level > levelBefore {
-						m.lastToast = "DING! You have leveled up."
-					} else {
-						m.lastToast = "The conditions have been met. +10 EXP"
+				if leveledUp {
+					// Async call to Gemini API for stat allocation
+					m.lastToast = "LEVEL UP! Allocating stats..."
+					m.pendingLevelUp = true
+					habits := m.userData.GetHabitNames()
+					level := m.userData.Level
+					return m, func() tea.Msg {
+						stats, _ := gemini.GetLevelUpStats(habits, level)
+						return levelUpStatsMsg{stats: stats}
 					}
+				} else if gainedEXP {
+					m.lastToast = "The conditions have been met. +10 EXP"
 				} else {
 					m.lastToast = ""
 				}
@@ -319,14 +342,8 @@ func soloStyles(r *lipgloss.Renderer) (systemTitle, accent, dim, reward, errStyl
 	return
 }
 
-// Stats derived from level (Solo Leveling style: STR, VIT, AGI, INT)
-func statsFromLevel(level int) (str, vit, agi, intel int) {
-	base := 10
-	if level <= 0 {
-		level = 1
-	}
-	return base + level, base + level, base + level, base + level
-}
+// Stats are now stored directly in UserData (STR, VIT, AGI, INT)
+// Updated by Gemini AI on each level-up
 
 // Dynamic box drawing: innerWidth is the width of the interior (dashes in top/bottom).
 // boxLine uses "│ " + content + pad + " │", so interior = 1 + contentWidth + pad + 1.
@@ -471,7 +488,7 @@ func (m model) View() string {
 		}
 	}
 	expBar := strings.Repeat("█", expPct) + strings.Repeat("░", 24-expPct)
-	str, vit, agi, intel := statsFromLevel(u.Level)
+	str, vit, agi, intel := u.STR, u.VIT, u.AGI, u.INT
 
 	var b strings.Builder
 	b.WriteString(systemTitle("◆  S Y S T E M"))
