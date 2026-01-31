@@ -1,0 +1,13 @@
+.git
+.gitignore
+*.md
+data/
+ssh_host_key
+ssh_host_key.pub
+*.db
+*.log
+Dockerfile
+.dockerignore
+docker-compose*.yml
+.docker
+server

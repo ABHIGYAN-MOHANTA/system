@@ -1,0 +1,11 @@
+services:
+  system:
+    build: .
+    ports:
+      - "23234:23234"
+    volumes:
+      - system_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  system_data:
