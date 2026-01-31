@@ -1,6 +1,9 @@
-# SYSTEM — Solo Leveling Habit Tracker
+# SYSTEM - Solo Leveling Style Habit Tracker over SSH
 
 A **Solo Leveling**–style daily habit tracker over SSH. Connect with SSH, then log in with your username and password in the app. Each account has its own quest log, level, and EXP.
+```bash
+ssh -p 50526 system.hostagedown.com
+```
 
 ## Features
 
@@ -8,7 +11,8 @@ A **Solo Leveling**–style daily habit tracker over SSH. Connect with SSH, then
 - **Register** — New users press `[r]` on the login screen to create an account
 - **Daily quests** — Add habits as “daily quests”; complete them each day for EXP
 - **Level & EXP** — +10 EXP per quest; level up every 100 EXP
-- **Solo Leveling UI** — System window, cyan borders, EXP rewards, level bar
+- **Custom Reset Time** — Press `[s]` to set when your day resets (default 4 AM)
+- **Solo Leveling UI** — System window, cyan borders, EXP rewards, level bar, time progress bar
 
 ## Run
 
@@ -21,7 +25,6 @@ The server auto-generates an SSH host key on first run if missing.
 **Docker:**
 ```bash
 docker compose up -d
-# or: docker build -t system . && docker run -p 23234:23234 -v system_data:/app/data system
 ```
 User data is stored in the `system_data` volume. Connect with `ssh -p 23234 user@localhost`.
 
@@ -32,9 +35,9 @@ User data is stored in the `system_data` volume. Connect with `ssh -p 23234 user
 ssh -p 23234 user@localhost
 ```
 
-**Production (e.g. your host):**
+**Production:**
 ```bash
-ssh system.hostagedown.com
+ssh -p 50526 system.hostagedown.com
 ```
 
 (Configure the host so SSH uses port 23234 and the system user if needed.)
